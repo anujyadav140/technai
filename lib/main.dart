@@ -5,12 +5,12 @@ import 'package:technai/create.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:technai/editor.dart';
 import 'firebase_options.dart';
+
 void main() async {
-  WidgetsFlutterBinding
-      .ensureInitialized(); // Ensures all plugins are initialized
-      await Firebase.initializeApp(
-  options: DefaultFirebaseOptions.currentPlatform,
-);
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const Technai());
 }
 
@@ -43,108 +43,43 @@ class Technai extends StatelessWidget {
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
-  /// A helper method to build an icon button with a circular border and label.
-  Widget _buildIconButton({
-    required String label,
+  Widget _buildFeatureBox({
+    required String title,
     required IconData icon,
+    required String description,
     required VoidCallback onPressed,
   }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.black, width: 2),
-          ),
-          child: IconButton(
-            icon: Icon(icon, color: Colors.black),
-            onPressed: onPressed,
-            iconSize: 40,
-            splashColor: Colors.transparent,
-            highlightColor: Colors.transparent,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: GoogleFonts.robotoMono(fontSize: 16, color: Colors.black),
-        ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Padding(
+    return Expanded(
+      child: InkWell(
+        // Makes the container clickable
+        onTap: onPressed,
+        borderRadius:
+            BorderRadius.circular(12), // Match the Container's border radius
+        child: Container(
           padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: Colors.grey[100], // Light grey background
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[300]!, width: 1),
+          ),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min, // Fit content vertically
             children: [
-              // Animated Typewriter Effect
-              AnimatedTextKit(
-                isRepeatingAnimation: true,
-                repeatForever: true,
-                animatedTexts: [
-                  TypewriterAnimatedText(
-                    'Technai',
-                    textStyle: GoogleFonts.robotoMono(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
-                    ),
-                    speed: const Duration(milliseconds: 100),
-                  ),
-                  TypewriterAnimatedText(
-                    'Your source to get inspired and create rapid prototyping for your ideas!',
-                    textStyle: GoogleFonts.robotoMono(
-                      fontSize: 16,
-                      color: Colors.black,
-                    ),
-                    speed: const Duration(milliseconds: 50),
-                  ),
-                ],
-                totalRepeatCount: 1,
+              Icon(icon, size: 40, color: Colors.black),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: GoogleFonts.robotoMono(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black),
               ),
-              const SizedBox(height: 32),
-
-              // Buttons Row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildIconButton(
-                    label: "Create a Template",
-                    icon: Icons.create,
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const CreateATemplate(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildIconButton(
-                    label: "Use Templates",
-                    icon: Icons.view_module,
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const VideoEditorExpandedPage(),
-                        ),
-                      );
-                    },
-
-                  ),
-                  _buildIconButton(
-                    label: "Your Work",
-                    icon: Icons.folder_open,
-                    onPressed: () {},
-                  ),
-                ],
+              const SizedBox(height: 8),
+              Text(
+                description,
+                textAlign: TextAlign.center,
+                style:
+                    GoogleFonts.robotoMono(fontSize: 14, color: Colors.black54),
               ),
             ],
           ),
@@ -152,5 +87,86 @@ class HomePage extends StatelessWidget {
       ),
     );
   }
-}
 
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: AnimatedTextKit(
+          animatedTexts: [
+            TypewriterAnimatedText(
+              'Technai',
+              textStyle: GoogleFonts.robotoMono(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+              speed: const Duration(milliseconds: 100),
+            ),
+          ],
+          totalRepeatCount: 1,
+          displayFullTextOnTap: true, // Important: prevent early stopping
+          stopPauseOnTap: true,
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1.0),
+          child: Container(
+            color: Colors.black,
+            height: 1.0,
+          ),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch, // Stretch the row
+          children: [
+            const SizedBox(
+              height: 24,
+            ),
+            Row(
+              mainAxisAlignment:
+                  MainAxisAlignment.spaceEvenly, // Consistent spacing
+              children: [
+                _buildFeatureBox(
+                  title: "Create a Template",
+                  icon: Icons.create,
+                  description: "Design custom video templates from scratch.",
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const CreateATemplate(),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(width: 16), // Add spacing between boxes
+                _buildFeatureBox(
+                  title: "Use Templates",
+                  icon: Icons.view_module,
+                  description: "Start creating videos with a template.",
+                  onPressed: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) =>
+                                const VideoEditorExpandedPage()));
+                  },
+                ),
+                const SizedBox(width: 16),
+                _buildFeatureBox(
+                  title: "Your Work",
+                  icon: Icons.folder_open,
+                  description: "Access and manage your saved video projects.",
+                  onPressed: () {},
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

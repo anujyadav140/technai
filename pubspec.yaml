@@ -44,6 +44,9 @@ dependencies:
   firebase_storage: ^12.4.2
   flutter_colorpicker: ^1.1.0
   dart_openai: 
+  ffmpeg_kit_flutter: ^5.1.0
+  path_provider:
+  path:
 dev_dependencies:
   flutter_test:
     sdk: flutter

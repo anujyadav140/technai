@@ -1,16 +1,42 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart'; // For kIsWeb.
+import 'package:ffmpeg_kit_flutter/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter/return_code.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart'; // For kIsWeb.
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path/path.dart' as p; // Import the path package.
+import 'package:path_provider/path_provider.dart';
 
-void main() {
+Future<void> main() async {
+  // Ensure plugin services are initialized before any use.
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
+
+/// A simple Project class that holds the timeline tracks.
+class Project {
+  final String name;
+  final List<TimelineSegment> imageTrack;
+  final List<TimelineSegment> voiceTrack;
+  final List<TimelineSegment> musicTrack;
+  final DateTime createdAt;
+
+  Project({
+    required this.name,
+    required this.imageTrack,
+    required this.voiceTrack,
+    required this.musicTrack,
+    required this.createdAt,
+  });
+}
+
+/// A global list that holds saved projects.
+List<Project> savedProjects = [];
 
 /// Basic app shell.
 class MyApp extends StatelessWidget {
@@ -30,6 +56,10 @@ class MyApp extends StatelessWidget {
           Theme.of(context).textTheme,
         ),
       ),
+      // Register a route for the workspace page.
+      routes: {
+        '/workspace': (context) => const WorkspacePage(),
+      },
       home: const VideoEditorExpandedPage(),
     );
   }
@@ -40,10 +70,12 @@ class DraggableAsset {
   final String assetType; // 'image', 'voice', 'music'
   final String
       display; // For images: URL, file path, or data URI; for voice/music: text or file path
+  final String? fileName; // Optional fileName
 
   DraggableAsset({
     required this.assetType,
     required this.display,
+    this.fileName,
   });
 }
 
@@ -52,17 +84,21 @@ class TimelineSegment {
   final String assetType; // 'image', 'voice', 'music'
   final String display;
   double duration; // in seconds
+  final String? fileName; // for music file name
 
   TimelineSegment({
     required this.assetType,
     required this.display,
     this.duration = 3.0,
+    this.fileName,
   });
 }
 
 /// The expanded video editor page.
+/// (Now it can optionally load a previously saved project.)
 class VideoEditorExpandedPage extends StatefulWidget {
-  const VideoEditorExpandedPage({Key? key}) : super(key: key);
+  final Project? project;
+  const VideoEditorExpandedPage({Key? key, this.project}) : super(key: key);
 
   @override
   _VideoEditorExpandedPageState createState() =>
@@ -131,6 +167,13 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
     }
     _audioPlayer = AudioPlayer();
     _flutterTts = FlutterTts();
+
+    // If a project was passed from the workspace, load its tracks.
+    if (widget.project != null) {
+      imageTrack = List.from(widget.project!.imageTrack);
+      voiceTrack = List.from(widget.project!.voiceTrack);
+      musicTrack = List.from(widget.project!.musicTrack);
+    }
   }
 
   @override
@@ -179,17 +222,24 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
       );
       if (result != null && result.files.isNotEmpty) {
         String musicDisplay;
+        String? fileName; // Store the file name
+
         if (kIsWeb) {
           final bytes = result.files.single.bytes;
           final base64Str = base64Encode(bytes!);
           // Note: Some players may not support data URIs for audio.
           musicDisplay = "data:audio/mp3;base64,$base64Str";
+          fileName = result.files.single.name; // Get filename directly
         } else {
           musicDisplay = result.files.single.path!;
+          fileName = p.basename(musicDisplay); // Extract filename from path
         }
         setState(() {
-          musicAssets
-              .add(DraggableAsset(assetType: 'music', display: musicDisplay));
+          musicAssets.add(DraggableAsset(
+            assetType: 'music',
+            display: musicDisplay,
+            fileName: fileName, // Pass the fileName to the DraggableAsset
+          ));
         });
       }
     } catch (e) {
@@ -211,6 +261,96 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
         voiceAssets.add(DraggableAsset(assetType: 'voice', display: text));
       });
     }
+  }
+
+  /// Show a dialog to let the user update TTS settings.
+  void _showVoiceoverSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        // Use StatefulBuilder to update dialog state.
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text("Voiceover Settings"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Pitch slider.
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Pitch"),
+                      Text(_ttsPitch.toStringAsFixed(2)),
+                    ],
+                  ),
+                  Slider(
+                    value: _ttsPitch,
+                    min: 0.5,
+                    max: 2.0,
+                    divisions: 15,
+                    onChanged: (value) {
+                      setStateDialog(() {
+                        _ttsPitch = value;
+                      });
+                      setState(() {});
+                    },
+                  ),
+                  // Speech Rate slider.
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Rate"),
+                      Text(_ttsRate.toStringAsFixed(2)),
+                    ],
+                  ),
+                  Slider(
+                    value: _ttsRate,
+                    min: 0.1,
+                    max: 1.0,
+                    divisions: 9,
+                    onChanged: (value) {
+                      setStateDialog(() {
+                        _ttsRate = value;
+                      });
+                      setState(() {});
+                    },
+                  ),
+                  // Volume slider.
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Volume"),
+                      Text(_ttsVolume.toStringAsFixed(2)),
+                    ],
+                  ),
+                  Slider(
+                    value: _ttsVolume,
+                    min: 0.0,
+                    max: 1.0,
+                    divisions: 10,
+                    onChanged: (value) {
+                      setStateDialog(() {
+                        _ttsVolume = value;
+                      });
+                      setState(() {});
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text("Done"),
+                )
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   // ===================== HELPER: CURRENT SEGMENT INDEX =====================
@@ -325,9 +465,7 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
       child: Container(
         width: 8,
         color: Colors.transparent,
-        child: Center(
-          child: const Icon(Icons.drag_indicator, size: 16),
-        ),
+        child: Center(child: const Icon(Icons.drag_indicator, size: 16)),
       ),
     );
   }
@@ -348,9 +486,7 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
       child: Container(
         height: 8,
         color: Colors.transparent,
-        child: Center(
-          child: const Icon(Icons.drag_handle, size: 16),
-        ),
+        child: Center(child: const Icon(Icons.drag_handle, size: 16)),
       ),
     );
   }
@@ -368,13 +504,16 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
           data: asset,
           feedback: Opacity(
             opacity: 0.7,
-            child: _buildAssetThumbnail(asset.display, asset.assetType),
+            child: _buildAssetThumbnail(
+                asset.display, asset.assetType, asset.fileName),
           ),
           childWhenDragging: Opacity(
             opacity: 0.3,
-            child: _buildAssetThumbnail(asset.display, asset.assetType),
+            child: _buildAssetThumbnail(
+                asset.display, asset.assetType, asset.fileName),
           ),
-          child: _buildAssetThumbnail(asset.display, asset.assetType),
+          child: _buildAssetThumbnail(
+              asset.display, asset.assetType, asset.fileName),
         ),
         Positioned(
           right: 0,
@@ -393,7 +532,8 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
   }
 
   /// Build a widget to represent an asset thumbnail.
-  Widget _buildAssetThumbnail(String display, String assetType) {
+  Widget _buildAssetThumbnail(
+      String display, String assetType, String? fileName) {
     if (assetType == 'image') {
       ImageProvider imageProvider;
       if (display.startsWith("http") || display.startsWith("data:")) {
@@ -426,7 +566,10 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
           children: [
             const Icon(Icons.record_voice_over, color: Colors.blue),
             const SizedBox(width: 8),
-            Flexible(child: Text("Voiceover", style: GoogleFonts.robotoMono())),
+            Flexible(
+                child: Text(display,
+                    style: GoogleFonts.robotoMono(),
+                    overflow: TextOverflow.ellipsis)),
           ],
         ),
       );
@@ -445,7 +588,13 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
           children: [
             const Icon(Icons.music_note, color: Colors.green),
             const SizedBox(width: 8),
-            Flexible(child: Text("Music", style: GoogleFonts.robotoMono())),
+            Flexible(
+              child: Text(
+                fileName ?? "Music",
+                style: GoogleFonts.robotoMono(),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
       );
@@ -562,9 +711,11 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
       onWillAccept: (data) => data?.assetType == assetType,
       onAccept: (data) {
         setState(() {
+          // Add fileName to the TimelineSegment as well.
           trackSegments.add(TimelineSegment(
             assetType: data.assetType,
             display: data.display,
+            fileName: data.fileName,
           ));
         });
       },
@@ -613,7 +764,7 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
     );
   }
 
-  /// Build the preview screen (top–right). The current image is chosen from the image track.
+  /// Build the preview screen (top–right) using a 9:16 AspectRatio.
   Widget _buildPreviewScreen() {
     String? previewImage = _getCurrentImageForPreview();
     ImageProvider? imageProvider;
@@ -624,53 +775,275 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
         imageProvider = FileImage(File(previewImage));
       }
     }
-    return Container(
-      height: 300,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.black26),
-        borderRadius: BorderRadius.circular(8),
-        color: Colors.black12,
-        image: imageProvider != null
-            ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
-            : null,
-      ),
-      child: Stack(
-        children: [
-          if (previewImage == null)
-            Center(
-              child: Text("Preview Screen",
-                  style: GoogleFonts.robotoMono(
-                      fontSize: 20, color: Colors.black54)),
+    return AspectRatio(
+      aspectRatio: 9 / 16,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.black26),
+          borderRadius: BorderRadius.circular(8),
+          color: Colors.black12,
+          image: imageProvider != null
+              ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
+              : null,
+        ),
+        child: Stack(
+          children: [
+            if (previewImage == null)
+              Center(
+                child: Text("Preview Screen",
+                    style: GoogleFonts.robotoMono(
+                        fontSize: 20, color: Colors.black54)),
+              ),
+            Positioned(
+              left: 8,
+              bottom: 8,
+              child: voiceTrack.isNotEmpty
+                  ? const Icon(Icons.record_voice_over,
+                      size: 40, color: Colors.blue)
+                  : const SizedBox(),
             ),
-          Positioned(
-            left: 8,
-            bottom: 8,
-            child: voiceTrack.isNotEmpty
-                ? const Icon(Icons.record_voice_over,
-                    size: 40, color: Colors.blue)
-                : const SizedBox(),
-          ),
-          Positioned(
-            right: 8,
-            bottom: 8,
-            child: musicTrack.isNotEmpty
-                ? const Icon(Icons.music_note, size: 40, color: Colors.green)
-                : const SizedBox(),
-          ),
-          Positioned(
-            left: 8,
-            top: 8,
-            child: Text(
-              "Time: ${_playbackPosition.toStringAsFixed(1)} sec",
-              style: GoogleFonts.robotoMono(
-                  fontSize: 14,
-                  color: Colors.white,
-                  backgroundColor: Colors.black45),
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: musicTrack.isNotEmpty
+                  ? const Icon(Icons.music_note, size: 40, color: Colors.green)
+                  : const SizedBox(),
             ),
-          ),
-        ],
+            Positioned(
+              left: 8,
+              top: 8,
+              child: Text(
+                "Time: ${_playbackPosition.toStringAsFixed(1)} sec",
+                style: GoogleFonts.robotoMono(
+                    fontSize: 14,
+                    color: Colors.white,
+                    backgroundColor: Colors.black45),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  // ===================== TOOLBOX (Floating Action Button) =====================
+
+  /// Opens a toolbox with options such as Save, Download Video, and Workspace.
+  void _showToolbox() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.save),
+                title: const Text('Save Project'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _saveProject();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.download),
+                title: const Text('Download Video'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _downloadVideo();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder),
+                title: const Text('Workspace'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const WorkspacePage(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Prompts the user for a project name and saves the current timeline as a new project.
+  void _saveProject() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final TextEditingController nameController = TextEditingController();
+        return AlertDialog(
+          title: const Text("Save Project"),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(hintText: "Enter project name"),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text("Cancel"),
+            ),
+            TextButton(
+              onPressed: () {
+                String projectName = nameController.text.trim();
+                if (projectName.isNotEmpty) {
+                  savedProjects.add(Project(
+                    name: projectName,
+                    imageTrack: List.from(imageTrack),
+                    voiceTrack: List.from(voiceTrack),
+                    musicTrack: List.from(musicTrack),
+                    createdAt: DateTime.now(),
+                  ));
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Project '$projectName' saved!")),
+                  );
+                }
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ===================== VIDEO DOWNLOAD IMPLEMENTATION =====================
+
+  /// Downloads the video by first generating an ffconcat file for images,
+  /// then (optionally) generating a voice audio file by “synthesizing” each voice segment,
+  /// concatenating them, and finally combining with a music track (if available).
+  ///
+  /// In a real application you would need to implement real TTS-to-file synthesis.
+  Future<void> _downloadVideo() async {
+    if (imageTrack.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("No images to create video")));
+      return;
+    }
+    try {
+      // Get temporary directory.
+      Directory tempDir = await getTemporaryDirectory();
+      String tempPath = tempDir.path;
+      String concatFilePath = p.join(tempPath, "images.txt");
+
+      // Build ffconcat file content for images.
+      StringBuffer concatContent = StringBuffer();
+      for (var segment in imageTrack) {
+        // Assumes segment.display is a local file path or URL.
+        concatContent.writeln("file '${segment.display}'");
+        concatContent.writeln("duration ${segment.duration}");
+      }
+      // Per ffconcat format, the last file is repeated without duration.
+      if (imageTrack.isNotEmpty) {
+        concatContent.writeln("file '${imageTrack.last.display}'");
+      }
+
+      // Write the concat file.
+      File concatFile = File(concatFilePath);
+      await concatFile.writeAsString(concatContent.toString());
+
+      // --- Audio preparation ---
+      // We will try to create a voice audio file if voice segments exist.
+      String? voiceAudioPath;
+      if (voiceTrack.isNotEmpty) {
+        List<String> voiceSegmentFiles = [];
+        for (int i = 0; i < voiceTrack.length; i++) {
+          String synthesizedPath =
+              await _synthesizeVoiceToFile(voiceTrack[i].display, i);
+          voiceSegmentFiles.add(synthesizedPath);
+        }
+        // Concatenate the synthesized voice segments into one file.
+        voiceAudioPath = p.join(tempPath, "voice_output.mp3");
+        await _concatenateAudioFiles(voiceSegmentFiles, voiceAudioPath);
+      }
+
+      // Use the first music asset if available.
+      String? musicAudioPath;
+      if (musicTrack.isNotEmpty) {
+        musicAudioPath = musicTrack.first.display;
+      }
+
+      // --- Build the FFmpeg command ---
+      String outputPath = p.join(tempPath, "output.mp4");
+      String ffmpegCmd;
+      if (voiceAudioPath != null && musicAudioPath != null) {
+        // Mix voice and music together using amix.
+        ffmpegCmd =
+            "-f concat -safe 0 -i '$concatFilePath' -i '$voiceAudioPath' -i '$musicAudioPath' "
+            "-filter_complex \"[1:a][2:a]amix=inputs=2:duration=shortest[a]\" "
+            "-map 0:v -map \"[a]\" -c:v libx264 -c:a aac -shortest -pix_fmt yuv420p '$outputPath'";
+      } else if (voiceAudioPath != null) {
+        // Only voice audio is available.
+        ffmpegCmd =
+            "-f concat -safe 0 -i '$concatFilePath' -i '$voiceAudioPath' "
+            "-c:v libx264 -c:a aac -shortest -pix_fmt yuv420p '$outputPath'";
+      } else if (musicAudioPath != null) {
+        // Only music audio is available.
+        ffmpegCmd =
+            "-f concat -safe 0 -i '$concatFilePath' -i '$musicAudioPath' "
+            "-c:v libx264 -c:a aac -shortest -pix_fmt yuv420p '$outputPath'";
+      } else {
+        // No audio – create video from images only.
+        ffmpegCmd =
+            "-f concat -safe 0 -i '$concatFilePath' -vsync vfr -pix_fmt yuv420p '$outputPath'";
+      }
+
+      // Execute FFmpeg command.
+      final session = await FFmpegKit.execute(ffmpegCmd);
+      final returnCode = await session.getReturnCode();
+      if (ReturnCode.isSuccess(returnCode)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text("Video downloaded successfully at: $outputPath")),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Failed to generate video")));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  /// Simulates synthesizing voice (TTS) to a file.
+  /// In a real implementation you would call an API or use a TTS engine that supports file output.
+  Future<String> _synthesizeVoiceToFile(String text, int index) async {
+    Directory tempDir = await getTemporaryDirectory();
+    String filePath = p.join(tempDir.path, "voice_segment_$index.mp3");
+    // For simulation, we simply write an empty file.
+    // Replace this with your TTS-to-file implementation.
+    File file = File(filePath);
+    await file.writeAsBytes(utf8.encode(""));
+    return filePath;
+  }
+
+  /// Concatenates multiple audio files into one using FFmpeg.
+  Future<void> _concatenateAudioFiles(
+      List<String> audioFiles, String outputPath) async {
+    Directory tempDir = await getTemporaryDirectory();
+    String concatFilePath = p.join(tempDir.path, "audio_concat.txt");
+    StringBuffer concatContent = StringBuffer();
+    for (var path in audioFiles) {
+      concatContent.writeln("file '$path'");
+    }
+    File concatFile = File(concatFilePath);
+    await concatFile.writeAsString(concatContent.toString());
+    String ffmpegCmd =
+        "-f concat -safe 0 -i '$concatFilePath' -c copy '$outputPath'";
+    final session = await FFmpegKit.execute(ffmpegCmd);
+    final returnCode = await session.getReturnCode();
+    if (!ReturnCode.isSuccess(returnCode)) {
+      throw Exception("Failed to concatenate audio files");
+    }
   }
 
   // ===================== MAIN BUILD =====================
@@ -688,6 +1061,11 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
               style: GoogleFonts.robotoMono(color: Colors.black)),
           backgroundColor: Colors.white,
           iconTheme: const IconThemeData(color: Colors.black),
+        ),
+        floatingActionButton: FloatingActionButton(
+          tooltip: "Toolbox",
+          onPressed: _showToolbox,
+          child: const Icon(Icons.build),
         ),
         body: Row(
           children: [
@@ -744,13 +1122,23 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
                       style: GoogleFonts.robotoMono(),
                     ),
                     const SizedBox(height: 8),
-                    ElevatedButton(
-                      onPressed: _addVoiceoverAsset,
-                      child: const Text("Preview & Add Voiceover"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white,
-                      ),
+                    // Row with Generate Voiceover button and settings icon.
+                    Row(
+                      children: [
+                        ElevatedButton(
+                          onPressed: _addVoiceoverAsset,
+                          child: const Text("Generate Voiceover"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.settings),
+                          onPressed: _showVoiceoverSettingsDialog,
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Wrap(
@@ -809,9 +1197,8 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
                 // Reserve fixed height for playback controls.
                 double playbackControlsHeight = 60;
                 // The remaining height is divided between preview and timeline.
-                double remainingHeight = availableRightHeight -
-                    playbackControlsHeight -
-                    8; // 8 for horizontal divider
+                double remainingHeight =
+                    availableRightHeight - playbackControlsHeight - 8;
                 double previewHeight = remainingHeight * _previewHeightFraction;
                 double timelineHeight = remainingHeight - previewHeight;
                 return Column(
@@ -934,5 +1321,67 @@ class _VideoEditorExpandedPageState extends State<VideoEditorExpandedPage> {
 extension WithKey on Widget {
   Widget withKey(Key key) {
     return KeyedSubtree(key: key, child: this);
+  }
+}
+
+/// The Workspace page that shows a list of saved projects.
+/// Tapping a project lets the user choose to load it.
+class WorkspacePage extends StatelessWidget {
+  const WorkspacePage({Key? key}) : super(key: key);
+
+  void _loadProject(BuildContext context, Project project) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("Load Project '${project.name}'?"),
+          content: const Text(
+              "This will replace the current session with the saved project."),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            TextButton(
+              onPressed: () {
+                // Replace current editor session with the loaded project.
+                Navigator.pop(context); // Close dialog.
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        VideoEditorExpandedPage(project: project),
+                  ),
+                );
+              },
+              child: const Text("Load"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Workspace",
+            style: GoogleFonts.robotoMono(color: Colors.black)),
+        backgroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
+      body: ListView.builder(
+        itemCount: savedProjects.length,
+        itemBuilder: (context, index) {
+          final project = savedProjects[index];
+          return ListTile(
+            title: Text(project.name, style: GoogleFonts.robotoMono()),
+            subtitle: Text("Created: ${project.createdAt.toLocal()}"),
+            onTap: () => _loadProject(context, project),
+          );
+        },
+      ),
+    );
   }
 }
