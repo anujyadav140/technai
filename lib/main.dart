@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:technai/create.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:technai/editor.dart';
 import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding
@@ -128,7 +129,15 @@ class HomePage extends StatelessWidget {
                   _buildIconButton(
                     label: "Use Templates",
                     icon: Icons.view_module,
-                    onPressed: () {},
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const VideoEditorExpandedPage(),
+                        ),
+                      );
+                    },
+
                   ),
                   _buildIconButton(
                     label: "Your Work",

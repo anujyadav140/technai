@@ -260,7 +260,8 @@ class _CreateATemplateState extends State<CreateATemplate> {
     });
     _loadVoices();
 
-    OpenAI.apiKey = "";
+    OpenAI.apiKey =
+        "";
   }
 
   Future<void> _loadVoices() async {
